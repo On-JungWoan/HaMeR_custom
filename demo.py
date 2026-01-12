@@ -16,7 +16,7 @@ LIGHT_BLUE=(0.65098039,  0.74117647,  0.85882353)
 from vitpose_model import ViTPoseModel
 from tqdm import tqdm
 
-def visualize_2d(results_2d):
+def visualize_2d(results_2d, out_dir):
     from PIL import Image
     import matplotlib.pyplot as plt
     
@@ -30,9 +30,8 @@ def visualize_2d(results_2d):
 
     print("Visualizing 2D keypoints")
     for idx in tqdm(range(len(im_paths))):
-
         im_p = im_paths[idx]
-        out_p = im_p.replace("/images/", '/processed/2d_keypoints/')
+        out_p = f"{out_dir}/2d_keypoints.jpg"
 
         im = Image.open(im_p)
 
@@ -48,9 +47,8 @@ def visualize_2d(results_2d):
 
     print("Visualizing 2D vertices")
     for idx in tqdm(range(len(im_paths))):
-
         im_p = im_paths[idx]
-        out_p = im_p.replace("/images/", '/processed/hpe_vis/')
+        out_p = f"{out_dir}/hpe_vis.jpg"
 
         im = Image.open(im_p)
 
@@ -163,8 +161,8 @@ def main():
     parser = argparse.ArgumentParser(description='HaMeR demo code')
     parser.add_argument('--checkpoint', type=str, default=DEFAULT_CHECKPOINT, help='Path to pretrained model checkpoint')
     parser.add_argument('--seq_name', type=str, default='images', help='Folder with input images')
-    parser.add_argument('--data_root', type=str, default='/home/user/datasets/arctic_hold/images', help='Folder with input images')
-    parser.add_argument('--out_folder', type=str, default='out_demo', help='Output folder to save rendered results')
+    parser.add_argument('--data_root', type=str, default='../..', help='Folder with input images')
+    # parser.add_argument('--out_folder', type=str, default='out_demo', help='Output folder to save rendered results')
     parser.add_argument('--side_view', dest='side_view', action='store_true', default=False, help='If set, render side view also')
     parser.add_argument('--full_frame', dest='full_frame', action='store_true', default=True, help='If set, render all people together also')
     parser.add_argument('--save_mesh', dest='save_mesh', action='store_true', default=False, help='If set, save meshes to disk also')
@@ -172,10 +170,13 @@ def main():
     parser.add_argument('--rescale_factor', type=float, default=2.0, help='Factor for padding the bbox')
     parser.add_argument('--body_detector', type=str, default='vitdet', choices=['vitdet', 'regnety'], help='Using regnety improves runtime and reduces memory')
     parser.add_argument('--file_type', nargs='+', default=['*.jpg', '*.png'], help='List of file extensions to consider')
+    parser.add_argument('--valid_score_thold', type=float, default=0.3) # original value: 0.5
+    parser.add_argument('--num_valid_thold', type=int, default=3) # original value: 3
 
     args = parser.parse_args()
     
-    args.img_folder = os.path.join(args.data_root, args.seq_name)
+    args.img_folder = f"{args.data_root}/input/{args.seq_name}"
+    args.out_folder = f"{args.data_root}/output/{args.seq_name}/hamer"
 
     # Download and load checkpoints
     download_models(CACHE_DIR_HAMER)
@@ -249,14 +250,14 @@ def main():
 
             # Rejecting not confident detections
             keyp = left_hand_keyp
-            valid = keyp[:,2] > 0.5
-            if sum(valid) > 3:
+            valid = keyp[:,2] > args.valid_score_thold
+            if sum(valid) >= args.num_valid_thold:
                 bbox = [keyp[valid,0].min(), keyp[valid,1].min(), keyp[valid,0].max(), keyp[valid,1].max()]
                 bboxes.append(bbox)
                 is_right.append(0)
             keyp = right_hand_keyp
-            valid = keyp[:,2] > 0.5
-            if sum(valid) > 3:
+            valid = keyp[:,2] > args.valid_score_thold
+            if sum(valid) >= args.num_valid_thold:
                 bbox = [keyp[valid,0].min(), keyp[valid,1].min(), keyp[valid,0].max(), keyp[valid,1].max()]
                 bboxes.append(bbox)
                 is_right.append(1)
@@ -367,15 +368,13 @@ def main():
             cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_all.jpg'), 255*input_img_overlay[:, :, ::-1])
 
     import os.path as op
-    out_p = f'../outputs/{args.seq_name}'; os.makedirs(out_p, exist_ok=True)
-    
-    out_3d_p = op.join(out_p, 'v3d.npy')
-    out_2d_p = op.join(out_p, 'j2d.full.npy')
+    out_3d_p = op.join(args.out_folder, 'v3d.npy')
+    out_2d_p = op.join(args.out_folder, 'j2d.full.npy')
     # normalize paths
     out_3d_p = op.normpath(out_3d_p)
     out_2d_p = op.normpath(out_2d_p)
     results_3d, results_2d = reform_pred_list(pred_list)
-    visualize_2d(results_2d)
+    visualize_2d(results_2d, args.out_folder)
     np.save(out_3d_p, results_3d)
     np.save(out_2d_p, results_2d)
     print(f"Saved 3D results to {out_3d_p}")
